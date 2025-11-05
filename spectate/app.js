@@ -1,225 +1,242 @@
 (function () {
-  // Parse query params
-  const params = new URLSearchParams(window.location.search);
-
-  // channels supports comma-separated entries like:
-  // twitch:channel1,twitch:channel2,youtube:channel:CHANNEL_ID,youtube:video:VIDEO_ID
-  // You can also pass url:https://player.example/your-embed
-  const channelsParam = params.get('channels') || '';
-  const layout = (params.get('layout') || 'grid').toLowerCase(); // grid | focus
-  const cycleSeconds = parseInt(params.get('cycle') || '0', 10); // 0 disables
-  const parent = params.get('parent') || ''; // Required for Twitch embeds on the hosting domain
-  const muted = (params.get('muted') || '1') !== '0'; // default muted=1
-  const startIndex = parseInt(params.get('start') || '0', 10) || 0;
-
+  // DOM
   const appEl = document.getElementById('app');
-  const gridEl = document.getElementById('grid');
+  const duoEl = document.getElementById('duo');
+  const leftEmbedEl = document.getElementById('embed-left');
+  const rightEmbedEl = document.getElementById('embed-right');
+  const badgeLeft = document.getElementById('badge-left');
+  const badgeRight = document.getElementById('badge-right');
 
+  // Config: URL -> data-attrs fallback
+  const params = new URLSearchParams(window.location.search);
+  function pick(name, def="") {
+    const v = params.get(name);
+    if (v !== null && v !== "") return v;
+    const d = appEl?.dataset?.[name];
+    if (d !== undefined && d !== null && `${d}` !== "") return `${d}`;
+    return def;
+  }
+
+  const parent = pick('parent', window.location.hostname || '');
+  const layoutInitial = (pick('layout','focus') || 'focus').toLowerCase(); // focus | both
+  const channelsParam = pick('channels', ''); // comma-separated
+  const mutedDefault = (pick('muted','1') !== '0'); // true by default
+
+  // Parse channels, use first two
   const entries = parseChannels(channelsParam);
+  const leftEntry = entries[0] || null;
+  const rightEntry = entries[1] || null;
 
-  if (!entries.length) {
-    gridEl.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:center;color:#c7d2e0;opacity:.8;">
-        No channels provided. Example:
-        ?parent=yourdomain.com&layout=focus&cycle=8&channels=twitch:chaser1,twitch:chaser2,youtube:channel:UCxxxx
-      </div>`;
-    return;
-  }
+  // State
+  let mode = layoutInitial === 'both' ? 'both' : 'focus';
+  let focusSide = 'left'; // which is larger when mode=focus
+  let audioSide = 'none'; // left | right | none
 
-  let focusMode = layout === 'focus';
-  let focusedIndex = clamp(startIndex, 0, entries.length - 1);
-  let cycleTimer = null;
-  let thumbnails = [];
+  // Players
+  const players = {
+    left: null,
+    right: null
+  };
+  const kinds = {
+    left: leftEntry?.kind || null,
+    right: rightEntry?.kind || null
+  };
 
-  if (focusMode) {
-    renderFocus();
-    if (cycleSeconds > 0) startAutoCycle();
-  } else {
-    renderGrid();
-  }
+  // Render badges
+  if (leftEntry) badgeLeft.textContent = leftEntry.label || prettyLabel(leftEntry);
+  if (rightEntry) badgeRight.textContent = rightEntry.label || prettyLabel(rightEntry);
 
-  // Key bindings
-  window.addEventListener('keydown', (e) => {
+  // Start
+  setMode(mode, false);
+  if (leftEntry) mountEmbed('left', leftEntry);
+  if (rightEntry) mountEmbed('right', rightEntry);
+
+  // Keyboard controls
+  window.addEventListener('keydown', onKey);
+  function onKey(e) {
     if (e.repeat) return;
-    switch (e.key) {
+    const key = e.key;
+    switch (key) {
+      case '1': return focus('left');
+      case '2': return focus('right');
+      case ' ': // Space
+      case 'Tab':
+      case 's':
+      case 'S':
+        e.preventDefault();
+        return swap();
       case 'f':
-      case 'F':
-        toggleFocusMode();
+      case 'F': return setMode('focus');
+      case 'b':
+      case 'B': return setMode('both');
+      case 'q':
+      case 'Q': return setAudio('left');
+      case 'w':
+      case 'W': return setAudio('right');
+      case '0': return setAudio('none');
+    }
+  }
+
+  // Optional: accept commands from a BroadcastChannel (for OBS Dock controller)
+  let bc = null;
+  try { bc = new BroadcastChannel('spectate-control'); } catch {}
+  if (bc) {
+    bc.onmessage = (ev) => {
+      const { cmd, arg } = ev.data || {};
+      if (!cmd) return;
+      if (cmd === 'mode') setMode(arg);
+      if (cmd === 'focus') focus(arg);
+      if (cmd === 'swap') swap();
+      if (cmd === 'audio') setAudio(arg);
+    };
+  }
+
+  // Actions
+  function setMode(next, animate = true) {
+    mode = (next === 'both') ? 'both' : 'focus';
+    duoEl.classList.toggle('layout-both', mode === 'both');
+    duoEl.classList.toggle('layout-focus', mode === 'focus');
+    applyFocusClass();
+  }
+
+  function focus(side) {
+    if (mode !== 'focus') setMode('focus');
+    focusSide = side === 'right' ? 'right' : 'left';
+    applyFocusClass();
+  }
+
+  function swap() {
+    focus(focusSide === 'left' ? 'right' : 'left');
+    setAudio(focusSide); // follow focus with audio by default
+  }
+
+  function applyFocusClass() {
+    duoEl.classList.toggle('focus-left', mode === 'focus' && focusSide === 'left');
+    duoEl.classList.toggle('focus-right', mode === 'focus' && focusSide === 'right');
+  }
+
+  function setAudio(side) {
+    audioSide = (side === 'left' || side === 'right') ? side : 'none';
+    // Visual ring
+    document.querySelectorAll('.frame').forEach(f => f.classList.remove('audio-active'));
+    if (audioSide === 'left') leftEmbedEl.parentElement.classList.add('audio-active');
+    if (audioSide === 'right') rightEmbedEl.parentElement.classList.add('audio-active');
+
+    // Mute/unmute via player APIs
+    setMuted('left', !(audioSide === 'left'));
+    setMuted('right', !(audioSide === 'right'));
+  }
+
+  // Embeds
+  function mountEmbed(side, entry) {
+    const hostEl = side === 'left' ? leftEmbedEl : rightEmbedEl;
+    if (!entry) {
+      hostEl.innerHTML = placeholder('No channel');
+      return;
+    }
+    switch (entry.kind) {
+      case 'twitch:channel':
+        mountTwitch(side, hostEl, entry.value);
         break;
-      case 'a':
-      case 'A':
-        toggleAutoCycle();
+      case 'youtube:channel':
+      case 'youtube:video':
+        mountYouTube(side, hostEl, entry);
         break;
-      case 'ArrowRight':
-        next();
-        break;
-      case 'ArrowLeft':
-        prev();
+      case 'url':
+        hostEl.innerHTML = `<iframe src="${entry.value}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
         break;
       default:
-        // 1–9 focus
-        if (e.key >= '1' && e.key <= '9') {
-          const idx = parseInt(e.key, 10) - 1;
-          if (idx < entries.length) setFocus(idx);
+        hostEl.innerHTML = placeholder('Unsupported');
+    }
+  }
+
+  function mountTwitch(side, el, channel) {
+    // Clear existing
+    el.innerHTML = '';
+    const id = `twitch-${side}-${Math.random().toString(36).slice(2)}`;
+    const mount = document.createElement('div');
+    mount.id = id;
+    mount.style.width = '100%';
+    mount.style.height = '100%';
+    el.appendChild(mount);
+
+    const embed = new Twitch.Embed(id, {
+      channel,
+      parent: [parent || window.location.hostname],
+      width: '100%',
+      height: '100%',
+      autoplay: true,
+      muted: mutedDefault
+    });
+
+    embed.addEventListener(Twitch.Embed.VIDEO_READY, () => {
+      const player = embed.getPlayer();
+      players[side] = player;
+      // Ensure autoplay kicks in muted
+      player.setMuted(mutedDefault);
+      if (!mutedDefault && side !== audioSide) player.setMuted(true);
+    });
+  }
+
+  // YouTube support via Iframe API
+  let ytReady = false;
+  let ytQueue = [];
+  window.onYouTubeIframeAPIReady = function() {
+    ytReady = true;
+    ytQueue.forEach(fn => fn());
+    ytQueue = [];
+  };
+
+  function mountYouTube(side, el, entry) {
+    const run = () => {
+      el.innerHTML = '';
+      const id = `yt-${side}-${Math.random().toString(36).slice(2)}`;
+      const mount = document.createElement('div');
+      mount.id = id;
+      mount.style.width = '100%';
+      mount.style.height = '100%';
+      el.appendChild(mount);
+
+      const videoId = entry.kind === 'youtube:video' ? entry.value : null;
+      const player = new YT.Player(id, {
+        width: '100%',
+        height: '100%',
+        videoId: videoId || undefined,
+        playerVars: videoId ? { autoplay: 1, mute: mutedDefault ? 1 : 0, playsinline: 1 } :
+          { autoplay: 1, mute: mutedDefault ? 1 : 0, playsinline: 1, listType: 'playlist' },
+        events: {
+          onReady: (e) => {
+            players[side] = e.target;
+            if (mutedDefault) e.target.mute(); else e.target.unMute();
+          }
         }
-    }
-  });
+      });
 
-  function toggleFocusMode() {
-    focusMode = !focusMode;
-    clearAutoCycle();
-    if (focusMode) {
-      renderFocus();
-      if (cycleSeconds > 0) startAutoCycle();
-    } else {
-      renderGrid();
-    }
+      players[side] = player;
+    };
+    if (!ytReady) ytQueue.push(run); else run();
   }
 
-  function toggleAutoCycle() {
-    if (cycleTimer) {
-      clearAutoCycle();
-    } else if (focusMode && cycleSeconds > 0) {
-      startAutoCycle();
+  function setMuted(side, muted) {
+    const p = players[side];
+    if (!p) return;
+    const kind = kinds[side];
+    if (kind && kind.startsWith('twitch')) {
+      try { muted ? p.setMuted(true) : p.setMuted(false); } catch {}
+    } else if (kind && kind.startsWith('youtube')) {
+      try { muted ? p.mute() : p.unMute(); } catch {}
     }
   }
 
-  function startAutoCycle() {
-    clearAutoCycle();
-    if (cycleSeconds > 0) {
-      cycleTimer = setInterval(next, cycleSeconds * 1000);
-    }
-  }
-
-  function clearAutoCycle() {
-    if (cycleTimer) {
-      clearInterval(cycleTimer);
-      cycleTimer = null;
-    }
-  }
-
-  function next() {
-    setFocus((focusedIndex + 1) % entries.length);
-  }
-
-  function prev() {
-    setFocus((focusedIndex - 1 + entries.length) % entries.length);
-  }
-
-  function setFocus(idx) {
-    focusedIndex = clamp(idx, 0, entries.length - 1);
-    if (focusMode) {
-      renderFocus();
-    }
-  }
-
-  function renderGrid() {
-    appEl.classList.remove('focus-mode');
-    gridEl.classList.remove('hidden');
-    gridEl.innerHTML = '';
-    const frag = document.createDocumentFragment();
-    entries.forEach((entry, i) => {
-      const tile = document.createElement('div');
-      tile.className = 'tile';
-      tile.appendChild(makeBadge(entry.label || labelFor(entry, i)));
-      tile.appendChild(makeIframe(entry));
-      frag.appendChild(tile);
-    });
-    gridEl.appendChild(frag);
-  }
-
-  function renderFocus() {
-    appEl.classList.add('focus-mode');
-    gridEl.classList.add('hidden');
-
-    // Build focus stage + strip
-    const stage = document.createElement('div');
-    stage.className = 'focus-stage';
-    stage.appendChild(makeBadge(entries[focusedIndex].label || labelFor(entries[focusedIndex], focusedIndex)));
-    stage.appendChild(makeIframe(entries[focusedIndex]));
-
-    const strip = document.createElement('div');
-    strip.className = 'focus-strip';
-    thumbnails = entries.map((entry, i) => {
-      const t = document.createElement('div');
-      t.className = 'focus-thumb' + (i === focusedIndex ? ' active' : '');
-      t.title = entry.label || labelFor(entry, i);
-      t.addEventListener('click', () => setFocus(i));
-      t.appendChild(makeBadge(entry.label || labelFor(entry, i)));
-      t.appendChild(makeIframe(entry, true)); // thumbnails reuse same embed; OBS will handle downscale
-      return t;
-    });
-
-    strip.append(...thumbnails);
-
-    // Replace app children with focus layout
-    appEl.innerHTML = '';
-    appEl.appendChild(stage);
-    appEl.appendChild(strip);
-    appEl.appendChild(document.getElementById('hint')); // reattach hint
-  }
-
-  function makeBadge(text) {
-    const b = document.createElement('div');
-    b.className = 'badge';
-    b.textContent = text;
-    return b;
-  }
-
-  function makeIframe(entry, isThumb = false) {
-    const iframe = document.createElement('iframe');
-    iframe.allow =
-      'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
-    iframe.allowFullscreen = true;
-
-    const commonAuto = muted ? '&autoplay=true&muted=true' : '&autoplay=true';
-
-    switch (entry.kind) {
-      case 'twitch:channel': {
-        const p = parent ? `&parent=${encodeURIComponent(parent)}` : '';
-        iframe.src = `https://player.twitch.tv/?channel=${encodeURIComponent(entry.value)}${p}${commonAuto}`;
-        break;
-      }
-      case 'youtube:channel': {
-        // Show live broadcast if any; otherwise YouTube shows "Offline" channel banner
-        iframe.src = `https://www.youtube-nocookie.com/embed/live_stream?channel=${encodeURIComponent(entry.value)}${commonAuto}`;
-        break;
-      }
-      case 'youtube:video': {
-        iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(entry.value)}?playsinline=1${commonAuto}`;
-        break;
-      }
-      case 'url': {
-        iframe.src = entry.value;
-        break;
-      }
-      default: {
-        // No-op, keeps an empty tile
-        break;
-      }
-    }
-    return iframe;
-  }
-
+  // Helpers
   function parseChannels(raw) {
     if (!raw) return [];
-    return raw
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map(parseEntry)
-      .filter(Boolean);
+    return raw.split(',').map(s => s.trim()).filter(Boolean).map(parseEntry).filter(Boolean);
   }
 
   function parseEntry(token) {
-    // Formats:
-    // twitch:CHANNEL
-    // youtube:channel:CHANNEL_ID
-    // youtube:video:VIDEO_ID
-    // url:https://...
-    const [p0, p1, p2, ...rest] = token.split(':');
-    const tail = rest.length ? rest.join(':') : '';
-    // url:https://... can include more colons; handle explicitly
+    // twitch:CHANNEL | youtube:channel:ID | youtube:video:ID | url:https://...
+    const [p0, p1, p2] = token.split(':');
     if (p0 === 'url') {
       const url = token.slice('url:'.length);
       return { kind: 'url', value: url, label: hostnameOf(url) || 'URL' };
@@ -233,7 +250,6 @@
     if (p0 === 'youtube' && p1 === 'video' && p2) {
       return { kind: 'youtube:video', value: p2, label: `YouTube Video/${shorten(p2)}` };
     }
-    // fallback: assume twitch:channel string without prefix
     if (!token.includes(':')) {
       return { kind: 'twitch:channel', value: token, label: `Twitch/${token}` };
     }
@@ -241,23 +257,18 @@
     return null;
   }
 
-  function labelFor(entry, i) {
-    return `Stream ${i + 1}`;
-  }
+  function hostnameOf(url) { try { return new URL(url).hostname; } catch { return null; } }
+  function shorten(s) { return s.length > 10 ? s.slice(0, 6) + '…' + s.slice(-3) : s; }
+  function prettyLabel(e) { return e.label || (e.kind?.split(':')[0] || 'Stream'); }
 
-  function clamp(v, min, max) {
-    return Math.max(min, Math.min(max, v));
-  }
-
-  function hostnameOf(url) {
-    try {
-      return new URL(url).hostname;
-    } catch {
-      return null;
+  // Default audio: follow focus if we have two channels
+  setTimeout(() => {
+    if (leftEntry && rightEntry) {
+      setAudio(focusSide);
+    } else if (leftEntry) {
+      setAudio('left');
+    } else if (rightEntry) {
+      setAudio('right');
     }
-  }
-
-  function shorten(s) {
-    return s.length > 10 ? s.slice(0, 6) + '…' + s.slice(-3) : s;
-  }
+  }, 750);
 })();
