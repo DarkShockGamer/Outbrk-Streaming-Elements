@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Spectate Controller</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root { --accent:#A259FF; --bg:#0b0e13; --fg:#e8eef7; }
+  html,body { height:100%; margin:0; background:#0c1220; color:var(--fg); font-family:'Orbitron',system-ui; }
+  .wrap { display:grid; gap:10px; grid-template-columns: repeat(3,1fr); padding:12px; }
+  button {
+    appearance:none; border:2px solid rgba(162,89,255,0.65); border-radius:10px;
+    background:#0b0e13; color:var(--fg); padding:12px; font-size:14px; cursor:pointer;
+    box-shadow:0 0 8px var(--accent), 0 0 18px rgba(162,89,255,.5);
+  }
+  .row { grid-column:1 / -1; display:grid; gap:10px; grid-template-columns: repeat(6,1fr); }
+  .small { font-size:12px; opacity:.8; }
+</style>
+<div class="wrap">
+  <div class="row">
+    <button onclick="send('mode','focus')">Focus Layout (F)</button>
+    <button onclick="send('mode','both')">Both Layout (B)</button>
+    <button onclick="send('swap')">Swap Focus (Space)</button>
+    <button onclick="send('focus','left')">Focus Left (1)</button>
+    <button onclick="send('focus','right')">Focus Right (2)</button>
+  </div>
+  <div class="row">
+    <button onclick="send('audio','left')">Audio Left (Q)</button>
+    <button onclick="send('audio','right')">Audio Right (W)</button>
+    <button onclick="send('audio','none')">Mute All (0)</button>
+  </div>
+  <div class="row small">
+    Tip: Add this page as an OBS Custom Browser Dock. Keep it focused to use the hotkeys.
+  </div>
+</div>
+<script>
+  let bc = null;
+  try { bc = new BroadcastChannel('spectate-control'); } catch {}
+  function send(cmd, arg) {
+    if (bc) bc.postMessage({ cmd, arg });
+  }
+  // Hotkeys inside the dock
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    switch (e.key) {
+      case 'f': case 'F': return send('mode','focus');
+      case 'b': case 'B': return send('mode','both');
+      case ' ': e.preventDefault(); return send('swap');
+      case '1': return send('focus','left');
+      case '2': return send('focus','right');
+      case 'q': case 'Q': return send('audio','left');
+      case 'w': case 'W': return send('audio','right');
+      case '0': return send('audio','none');
+    }
+  });
+</script>
