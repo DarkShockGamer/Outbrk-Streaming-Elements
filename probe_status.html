@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Probe Status</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap');
+
+    body {
+      margin: 0;
+      background: transparent;
+      overflow: hidden;
+      font-family: 'Orbitron', sans-serif;
+      color: white;
+    }
+
+    #probe_status_container {
+      position: absolute;
+      bottom: 180px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      pointer-events: none;
+      z-index: 1002;
+    }
+
+    .status-box {
+      display: none;
+      padding: 10px 20px;
+      font-size: 24px;
+      color: white;
+      background: rgba(0, 0, 0, 0.6);
+      border: 2px solid #A259FF;
+      border-radius: 10px;
+      text-shadow: 0 0 4px #ffffff, 0 0 12px #A259FF;
+      box-shadow: 0 0 10px #A259FF;
+      width: fit-content;
+      animation: pulseGlow 2s infinite;
+      margin: 4px 0;
+    }
+
+    .visible {
+      display: inline-block !important;
+    }
+
+    @keyframes pulseGlow {
+      0%   { box-shadow: 0 0 8px #A259FF; }
+      50%  { box-shadow: 0 0 14px #A259FF; }
+      100% { box-shadow: 0 0 8px #A259FF; }
+    }
+  </style>
+</head>
+<body>
+  <div id="probe_status_container" class="overlay hidden">
+    <div id="probe_status_1" class="status-box">🚨 Probe Ready To Deploy</div>
+    <div id="probe_status_2" class="status-box">🚨 Probe Deployed</div>
+    <div id="probe_status_3" class="status-box">🚨 Probe Intercept Successful, Uploading Data</div>
+  </div>
+
+  <script>
+    let socket = null;
+    let reconnectInterval = 2000;
+    let currentGameStatus = null;
+	
+	const webhookMap = {
+      "prox_status_1": "https://api.lumiastream.com/api/wh/reyos86/Scouting",
+      "prox_status_2": "https://api.lumiastream.com/api/wh/reyos86/severe",
+      "prox_status_3": "https://api.lumiastream.com/api/wh/reyos86/warning"
+    };
+	
+	function sendLumiaWebhook(status) {
+      const url = webhookMap[status];
+      if (url) {
+        fetch(url, { method: "POST" })
+          .then(res => {
+            console.log(`Lumia Webhook sent for ${status}`);
+          })
+          .catch(err => {
+            console.error(`Failed to send Lumia webhook for ${status}`, err);
+          });
+      }
+    }
+
+  function connectSocket() {
+  socket = new WebSocket("ws://localhost:2424/obs");
+
+  socket.onopen = () => {
+    console.log("[OBS Overlay] Connected to Unity WebSocket");
+    socket.send(JSON.stringify({ type: "request_current_state" }));
+  };
+
+  socket.onerror = (error) => {
+    console.error("WebSocket error:", error);
+  };
+
+  socket.onclose = () => {
+    console.warn("WebSocket closed. Reconnecting in 2s...");
+    setTimeout(connectSocket, reconnectInterval);
+  };
+
+  socket.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    const state = data.event;
+    console.log("OBS received:", state);
+
+    if (state.startsWith("game_status_")) {
+      currentGameStatus = state;
+      updateCategory("game_status_container", "game_status_", state);
+
+      if (state === "game_status_2") {
+        showContainer("prox_status_container");
+        showContainer("probe_status_container");
+      } else {
+        hideContainer("prox_status_container");
+        // Do not hide probe_status_container so it persists
+      }
+    }
+
+    else if (state.startsWith("prox_status_") && currentGameStatus === "game_status_2") {
+      updateCategory("prox_status_container", "prox_status_", state);
+    }
+
+    else if (state.startsWith("probe_status_")) {
+      updateCategory("probe_status_container", "probe_status_", state);
+    }
+  };
+}
+
+    function updateCategory(containerId, prefix, activeId) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+
+      container.classList.remove("hidden");
+
+      Array.from(container.children).forEach(child => {
+        child.style.display = (child.id === activeId) ? "block" : "none";
+      });
+    }
+
+    function hideContainer(containerId) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      container.classList.add("hidden");
+      Array.from(container.children).forEach(child => child.style.display = "none");
+    }
+
+    function showContainer(containerId) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      container.classList.remove("hidden");
+    }
+
+    connectSocket();
+  </script>
+</body>
+</html>

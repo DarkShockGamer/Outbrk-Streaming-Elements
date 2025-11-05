@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap');
+
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: transparent;
+      font-family: 'Orbitron', sans-serif;
+    }
+
+    .scrolling-banner {
+      position: fixed;
+      bottom: 20px;
+      width: 90%;
+      margin: 0 auto;
+      left: 0;
+      right: 0;
+      background: rgba(45, 45, 45, 0.85);
+      color: #ff4f4f; /* urgent red */
+      font-size: 1.3em;
+      padding: 14px 24px;
+      border-radius: 12px;
+      border: 2px solid #ff4f4f;
+      box-shadow: 0 0 14px #ff4f4f;
+      overflow: hidden;
+      white-space: nowrap;
+      text-shadow: 1px 1px 2px #000;
+    }
+
+    .scrolling-text {
+      display: inline-block;
+      padding-left: 100%;
+      animation: scroll-left 60s linear infinite;
+    }
+
+    @keyframes scroll-left {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-100%); }
+    }
+  </style>
+</head>
+<body>
+  <div class="scrolling-banner">
+    <div class="scrolling-text">
+      🚨 SEVERE WEATHER ALERT — <strong>TORNADO WARNING IN EFFECT</strong> — MULTIPLE SUPERCELLS FORMING ALONG THE DRYLINE — STORM CHASERS DEPLOYING ACROSS CENTRAL PLAINS — LIVE RADAR INDICATES ROTATION — GOLF BALL SIZE HAIL REPORTED — FLASH FLOODING POSSIBLE IN LOW-LYING AREAS — OUTBRK STORM RATING: SEVERE — FUNNEL CLOUD REPORTED — STAY TUNED FOR LIVE INTERCEPT FOOTAGE — ⚠️
+    </div>
+  </div>
+</body>
+</html>

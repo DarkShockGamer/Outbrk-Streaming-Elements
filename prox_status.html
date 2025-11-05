@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Proximity Status</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap');
+
+    body {
+      margin: 0;
+      background: transparent;
+      overflow: hidden;
+      font-family: 'Orbitron', sans-serif;
+      color: white;
+    }
+
+    #prox_status_container {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: flex-end;
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    iframe {
+      display: none;
+      width: 1920px;
+      height: 80px;
+      background: transparent;
+      border: none;
+    }
+
+    .visible {
+      display: block !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="prox_status_container">
+    <iframe id="prox_status_1" src="assets/Watch_overlay.html" allowtransparency="true"></iframe>
+    <iframe id="prox_status_2" src="assets/Severe_Thunderstorm_Warning.html" allowtransparency="true"></iframe>
+    <iframe id="prox_status_3" src="assets/Tornado_Warning.html" allowtransparency="true"></iframe>
+
+    <!-- Inline ticker iframe using srcdoc -->
+    <iframe id="default_ticker" allowtransparency="true" class="visible" srcdoc='
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            overflow: hidden;
+          }
+          .ticker-wrapper {
+            width: 100%;
+            height: 60px;
+            background: linear-gradient(to right, #A259FF, #000000, #00d1b2);
+            border-top: 3px solid black;
+            border-bottom: 3px solid black;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+            font-family: Arial Black, Arial, sans-serif;
+          }
+          .ticker-track {
+            display: flex;
+            white-space: nowrap;
+            will-change: transform;
+            animation: scroll-left 70s linear infinite;
+          }
+          .ticker-text {
+            color: #e2fef9;
+            font-size: 26px;
+            letter-spacing: 1px;
+            padding: 0 2rem;
+            text-transform: uppercase;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+          }
+          .ticker-text img {
+            height: 40px;
+            vertical-align: middle;
+            margin-right: 15px;
+          }
+          @keyframes scroll-left {
+            0%   { transform: translate3d(0, 0, 0); }
+            100% { transform: translate3d(-50%, 0, 0); }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="ticker-wrapper">
+          <div class="ticker-track">
+            <div class="ticker-text">
+              <img src="dozer-Photoroom.png" alt="Dozers Live Logo">
+              🟣 Twitch: @DarkShockGamer is live now! 🎥 • YouTube: @DarkShockGamer1 is live now! Subscribe for more content! • 💬 Join the chat and follow the storm! • 🌩️ OUTBRK Dozer&apos;s team is chasing 0.3! Join us at DozersLive.com 🌪️ • 👍 Like - 🔔 Subscribe - 🤍 Follow — support the stream!🌪️
+            </div>
+            <div class="ticker-text">
+              <img src="dozer-Photoroom.png" alt="Dozers Live Logo">
+              🟣 Twitch: @DarkShockGamer is live now! 🎥 • YouTube: @DarkShockGamer1 is live now! Subscribe for more content! • 💬 Join the chat and follow the storm! • 🌩️ OUTBRK Dozer&apos;s team is chasing 0.3! Join us at DozersLive.com 🌪️ • 👍 Like - 🔔 Subscribe - 🤍 Follow — support the stream!🌪️
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>'></iframe>
+  </div>
+
+  <script>
+    const statusFrames = [
+      document.getElementById("prox_status_1"),
+      document.getElementById("prox_status_2"),
+      document.getElementById("prox_status_3"),
+    ];
+	const webhookMap = {
+      "prox_status_1": "https://api.lumiastream.com/api/wh/reyos86/Scouting",
+      "prox_status_2": "https://api.lumiastream.com/api/wh/reyos86/severe",
+      "prox_status_3": "https://api.lumiastream.com/api/wh/reyos86/warning"
+    };
+	
+    function sendLumiaWebhook(status) {
+      const url = webhookMap[status];
+      if (url) {
+        fetch(url, { method: "POST" })
+          .then(res => {
+            console.log(`Lumia Webhook sent for ${status}`);
+          })
+          .catch(err => {
+            console.error(`Failed to send Lumia webhook for ${status}`, err);
+          });
+      }
+    }
+
+    function connectSocket() {
+      socket = new WebSocket("ws://localhost:2424/obs");
+
+      socket.onopen = () => {
+        console.log("[OBS Overlay] Connected to Unity WebSocket");
+        socket.send(JSON.stringify({ type: "request_current_state" }));
+      };
+
+      socket.onerror = (error) => {
+        console.error("WebSocket error:", error);
+      };
+
+      socket.onclose = () => {
+        console.warn("WebSocket closed. Reconnecting in 2s...");
+        setTimeout(connectSocket, reconnectInterval);
+      };
+
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        const state = data.event;
+        console.log("OBS received:", state);
+
+        if (state.startsWith("game_status_")) {
+          currentGameStatus = state;
+          updateCategory("game_status_container", "game_status_", state);
+
+          if (state === "game_status_2") {
+            showContainer("prox_status_container");
+            showContainer("probe_status_container");
+          } else {
+            hideContainer("prox_status_container");
+            hideContainer("probe_status_container");
+          }
+        }
+
+        else if (state.startsWith("prox_status_") && currentGameStatus === "game_status_2") {
+          updateCategory("prox_status_container", "prox_status_", state);
+          sendLumiaWebhook(state);
+        }
+
+        else if (state.startsWith("probe_status_") && currentGameStatus === "game_status_2") {
+          updateCategory("probe_status_container", "probe_status_", state);
+        }
+      };
+    }
+
+    function updateCategory(containerId, prefix, activeId) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+
+      container.classList.remove("hidden");
+
+      Array.from(container.children).forEach(child => {
+        child.style.display = (child.id === activeId) ? "block" : "none";
+      });
+    }
+
+    function hideContainer(containerId) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      container.classList.add("hidden");
+      Array.from(container.children).forEach(child => child.style.display = "none");
+    }
+
+    function showContainer(containerId) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      container.classList.remove("hidden");
+    }
+
+    // Start connection and set initial status
+    window.addEventListener("load", () => {
+      updateCategory("game_status_container", "game_status_", "game_status_1");
+      connectSocket();
+    });
+  </script>
+</body>
+</html>
