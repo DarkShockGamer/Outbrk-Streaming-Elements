@@ -4,16 +4,46 @@
   <meta charset="utf-8" />
   <title>Spectate | Outbrk Streaming Elements</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="preconnect" href="https://www.twitch.tv/xqc">
-  <link rel="preconnect" href="https://www.twitch.tv/queenboocakes">
+  <!-- Theme: match other elements -->
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://player.twitch.tv">
+  <link rel="preconnect" href="https://www.youtube-nocookie.com">
   <link rel="stylesheet" href="./style.css" />
+  <!-- Twitch and YouTube APIs to control audio/mute -->
+  <script src="https://player.twitch.tv/js/embed/v1.js"></script>
+  <script>
+    // YouTube Iframe API loader
+    (function(){
+      const s = document.createElement('script');
+      s.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(s);
+    })();
+  </script>
   <script defer src="./app.js"></script>
 </head>
 <body>
-  <div id="app">
-    <div id="grid" class="grid"></div>
+  <!-- You can set defaults here so you don't have to pass query params -->
+  <div id="app"
+       data-layout="focus"            <!-- focus | both -->
+       data-cycle="0"                 <!-- 0 disables auto cycle -->
+       data-parent="darkshockgamer.github.io">
+    <div class="duo layout-focus focus-left" id="duo">
+      <div class="pane pane-left">
+        <div class="frame">
+          <div class="badge" id="badge-left">Left</div>
+          <div class="embed" id="embed-left"></div>
+        </div>
+      </div>
+      <div class="pane pane-right">
+        <div class="frame">
+          <div class="badge" id="badge-right">Right</div>
+          <div class="embed" id="embed-right"></div>
+        </div>
+      </div>
+    </div>
+
     <div id="hint" class="hint">
-      Keys: 1–9 to focus stream • ←/→ to cycle • F to toggle focus • A to toggle auto-cycle
+      1/2 focus • Space swap • F focus layout • B both layout • Q/W choose audio • 0 mute all
     </div>
   </div>
 </body>
